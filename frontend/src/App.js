@@ -1,9 +1,21 @@
 import * as React from 'react';
+import { useReducer } from 'react';
 import { makeStyles } from '@material-ui/core/styles';
-import {AppBar, Toolbar ,Typography, Button, 
-  IconButton, Grid, Checkbox, FormControlLabel, 
-  List,ListItemText, ListItemSecondaryAction, 
-  Card, Box, Divider, FormControl, FormGroup, InputBase } from '@material-ui/core';
+import { 
+  AppBar,
+  Toolbar,
+  Typography,
+  Button, 
+  IconButton,
+  Grid,
+  Checkbox,
+  FormControlLabel, 
+  List,
+  ListItemText,
+  ListItemSecondaryAction, 
+  Box, 
+  Divider, 
+} from '@material-ui/core';
 import MenuIcon from '@material-ui/icons/Menu';
 import ShoppingCartOutlinedIcon from '@material-ui/icons/ShoppingCartOutlined';
 import RobotsList from './RobotsList'
@@ -40,22 +52,74 @@ const useStyles = makeStyles((theme) => ({
   controlList: {
     margin: '5%'
   }
-
 }));
 
+function robotsReducer(robots, action) {
+  switch (action.type) {
+    case 'FETCH_SUCCESS': {
+      return [
+        ...action.robots
+      ];
+    }
+    case 'FILTERED_ROBOTS': {
+      return [
+        ...action.robots
+      ]
+    } 
+    case 'UPDATE_ROBOTS_STOCK': {
+      return robots.map((r) => {
+        if(r.name === action.robot.name) {
+          return {
+            ...r,
+            stock: action.updateType === 'subtract' ? r.stock - 1 : r.stock + 1
+          }
+        }
+        return r
+      })
+    }
+    default: {
+      throw Error('Unknown action: ' + action.type);
+    }
+  }
+}
+
+function shoppingCartListReducer(shoppingCartList, action) {
+  switch (action.type) {
+    case 'ADD_SHOPPING_CART': {
+      const result = { ...action.robot, stock: 1 };
+      return [
+        ...shoppingCartList,
+        result
+      ]
+    }
+    case 'UPDATE_SHOPPING_CART': {
+      return shoppingCartList.map((s) => {
+        if(s.name === action.robot.name) {
+          return {
+            ...s,
+            stock: action.updateType === 'added' ? s.stock + 1 : s.stock - 1
+          }
+        }
+        return s
+      })
+    }
+    default: {
+      throw Error('Unknown action: ' + action.type);
+    }
+  }
+}
 
 const RobotMarket = () => {
   const classes = useStyles();
-  const [robots, setRobots] = React.useState([]);
+  const [robots, dispatch] = useReducer(robotsReducer, []);
   const [materialTypes, setMaterialTypes] = React.useState([])
   const [selectedMaterialType, setSelectedMaterialType] = React.useState()
   const [drawer, setDrawer] = React.useState(false)
-  const [shoppingCartList, setShoppingCartList] = React.useState([])
-  const [itemCount, setItemCount] = React.useState()
+  const [shoppingCartList, shoppingCartListDispatch] = useReducer(shoppingCartListReducer, [])
   const [filterArr, setFilterArr] = React.useState([])
   const [temp, setTemp] = React.useState([])
+  const [robotsMaterialTypeHashMap, setRobotsMaterialTypeHashMap] = React.useState(new Map([]))
 
-    {/* fetching data from sever */}
     React.useEffect(() => {
       let url = `http://localhost:8000/api/robots`;
       let config = {
@@ -68,91 +132,69 @@ const RobotMarket = () => {
       axios( url, config )
         .then(response => {
           if (response.status >= 200 && response.status <= 299) {
-              console.log(response.data.data)
-              
+              dispatch({type: 'FETCH_SUCCESS', robots: response.data.data})
+              setTemp(response.data.data)
+
               // fetching material type without duplicating
+              // hashMap materialType => [robotObj, robotObj ]
               const testSet = new Set()
               for (let i= 0; i< response.data.data.length; i ++) {
-                testSet.add(response.data.data[i].material)
+                const currentRobotObj = response.data.data[i]
+                const currentRobotMaterialType = response.data.data[i].material
+                testSet.add(currentRobotMaterialType)
+
+                if (robotsMaterialTypeHashMap.has(currentRobotMaterialType)) {
+                  robotsMaterialTypeHashMap.get(currentRobotMaterialType).push(currentRobotObj)
+                } else {
+                  robotsMaterialTypeHashMap.set(currentRobotMaterialType, [currentRobotObj])
+                }
               }
               let arr = Array.from(testSet);
               setMaterialTypes(arr)
-
-              // filter robots
-              // if (filterArr.length== 0) {
-                // console.log('filter arr empty')
-                setRobots(response.data.data)  
-              // }
-              // else {
-              //   console.log('filter arr NOT empty')
-                
-              //   let arr = []
-              //   const resulted = filterArr.map((val) => {
-              //    const result =  response.data.data.filter((val2) => val2.material == val)
-              //    return result
-              //   })   
-              //   for (let i= 0; i < resulted.length; i ++) {
-              //     return arr = [...resulted[i]]
-              //   }
-              //   console.log(arr)
-               
-              // }
-
-          }
+            }
         })
         .catch(err => {
             console.log(err.message)
         });
-    // }, [filterArr])
-  }, [])
+    }, [])
 
-
+    React.useEffect(() => {
+      if(filterArr.length > 0) {
+        let filteredRobots = [];
+        filterArr.map((f) => {
+          filteredRobots = [...robotsMaterialTypeHashMap.get(f)]
+          return f
+        })
+        dispatch({type: 'FILTERED_ROBOTS', robots: filteredRobots})
+      } else {
+        dispatch({type: 'FILTERED_ROBOTS', robots: temp})
+      }
+    },[filterArr])
 
 
     const handleCheckboxChange = (isChecked, materialType) => {
-      if (isChecked == true) {
+      if (isChecked === true) {
         setFilterArr(((prevArray) => [...prevArray, materialType]))
       } 
-
-      else if (isChecked == false) {
+      else if (isChecked === false) {
         const foundIndex = filterArr.findIndex((fa) => fa === materialType);
         const arr = [...filterArr]
         arr.splice(foundIndex, 1)
         setFilterArr(arr)
-
       }
-      
     } 
 
-
     const handleAddShoppingCart = (addedRobot) => {
+      const foundRobotInShoppingCart = shoppingCartList.filter((val) => val.name === addedRobot.name)
 
-      //check if the addedRobot item already existed in the array
-      const result = shoppingCartList.filter((val) => val.name == addedRobot.name)
-
-      // if not exited, push new array of object
-      if (result.length == [] ) {
-
-        let arr = [...shoppingCartList]
-        
-        arr.push(addedRobot)
-
-
-        let objIndex = arr.findIndex((obj) => obj.name == addedRobot.name);
-
-        arr[objIndex].stock = arr[objIndex].stock - arr[objIndex].stock + 1
-        setShoppingCartList(arr)
-
+      if (foundRobotInShoppingCart.length === 0 ) {
+        shoppingCartListDispatch({type: 'ADD_SHOPPING_CART', robot: addedRobot})
       } 
-      //if already exited update the stock 
       else {
-
-        console.log('already there')
-        let arr = [...shoppingCartList]
-        let objIndex = arr.findIndex((obj => obj.name == addedRobot.name));
-        arr[objIndex].stock =  arr[objIndex].stock + 1
-        setShoppingCartList(arr)
+        shoppingCartListDispatch({type: 'UPDATE_SHOPPING_CART', robot: addedRobot, updateType: 'added'})
       }
+
+      dispatch({type: 'UPDATE_ROBOTS_STOCK', robot: addedRobot, updateType: 'subtract'})
     }
 
     const toggleDrawer = (event, toogleBool) => {
@@ -166,54 +208,34 @@ const RobotMarket = () => {
       setDrawer(false)
     }
 
+    const addItem = (addedRobotObj, shoppingCartListIndex) => {
+      let isOutOfStock = false;
+      robots.map((r) => {
+        if(r.name === addedRobotObj.name && r.stock === 0) {
+          alert("Out of stock")
+          isOutOfStock = true
+          return;
+        }
+      })
 
-   // to update robot stock after addItem function 
-    const updateRobotsStock = (addedRobotObj) => {
-      let objIndex2 = robots.findIndex((obj => obj.name == addedRobotObj.name));
-      if (objIndex2 >= 0) {
-        console.log('hello')
-        robots[objIndex2].stock =  robots[objIndex2].stock - 1
+      if(isOutOfStock === true) {
+        return
       }
-    }
 
-    const addItem = (addedRobotObj) => {
-
-        let objIndex = shoppingCartList.findIndex((obj => obj.name == addedRobotObj.name));
-        let arr = [...shoppingCartList]
-      
-        arr[objIndex].stock =  arr[objIndex].stock + 1
-        setShoppingCartList(arr)
-
-        // to alert out of stock 
-        // (arr[objIndex].stock > addedRobotObj.stock) ? alert("Out of stock") : setShoppingCartList(arr)
-        
-        //calling updateRobotStock function to update the added robot stock in the grid list 
-        //updateRobotsStock(addedRobotObj)
-
+      shoppingCartListDispatch({type: 'UPDATE_SHOPPING_CART', robot: addedRobotObj, updateType: 'added'})
+      dispatch({type: 'UPDATE_ROBOTS_STOCK', robot: addedRobotObj, updateType: 'subtract'})
     }
 
     const subtractItem = (subtractedRobotObj) => {
-
-      if (subtractedRobotObj.stock != 0) {
-        let arr = [...shoppingCartList]
-        let objIndex = arr.findIndex((obj => obj.name == subtractedRobotObj.name));
-        arr[objIndex].stock =  arr[objIndex].stock - 1
-        setShoppingCartList(arr)
-      }
-
+      shoppingCartListDispatch({type: 'UPDATE_SHOPPING_CART', robot: subtractedRobotObj, updateType: 'subtract'})
+      dispatch({type: 'UPDATE_ROBOTS_STOCK', robot: subtractedRobotObj, updateType: 'added'})
     }
-
-  
     
-  
   return (
 
-    <div className={classes.root}>
-
+    <div>
       {/* Menu top bar */}
       <AppBar position="fixed">
-        {console.log('filterArr', filterArr)}
-        {console.log("robots", temp)}
         <Toolbar>
           <IconButton edge="start" className={classes.menuButton} color="secondary"  >
             <MenuIcon />
@@ -253,7 +275,6 @@ const RobotMarket = () => {
                                 onChange={(e) => {
                                     const isChecked = e.target.checked;
                                     handleCheckboxChange(isChecked, materialType);
-                    
                                 }}
                             />
                           }
@@ -265,12 +286,14 @@ const RobotMarket = () => {
 
           {/* Robot lists */}
           <Grid container  xs={8}  spacing={2} className={classes.listGrid}>
-            {robots && robots.map((robot) => (
+            {robots && robots.map((robot, index) => (
               <Grid item xs={4}>
-                <RobotsList
-                  robot={robot}
-                  handleAddShoppingCart={handleAddShoppingCart}
-                />
+                <div key={index}>
+                  <RobotsList
+                    robot={robot}
+                    handleAddShoppingCart={handleAddShoppingCart}
+                  />
+                </div>
               </Grid>
             ))}
           </Grid>
@@ -279,63 +302,57 @@ const RobotMarket = () => {
       </div>
 
       {/* Right shopping cart drawer */}
-          <Drawer 
-            classes={{ paper: classes.paper }}
-            variant="persistent" 
-            anchor="right" 
-            open={drawer} 
-            onClose={(event) => toggleDrawer(event, false)}
-          >
-          <div className={classes.controlList}>
-            <Box display="flex" flexDirection="row">
-              <Typography variant="subtitle1">Shopping cart</Typography>
-              <IconButton onClick={handleDrawerClose}>
-                <ArrowForwardIcon/>
-              </IconButton>
-            </Box>
+      <Drawer 
+        classes={{ paper: classes.paper }}
+        variant="persistent" 
+        anchor="right" 
+        open={drawer} 
+        onClose={(event) => toggleDrawer(event, false)}
+      >
+        <div className={classes.controlList}>
+          <Box display="flex" flexDirection="row">
+            <Typography variant="subtitle1">Shopping cart</Typography>
+            <IconButton className={classes.drawerArrow} onClick={handleDrawerClose}>
+              <ArrowForwardIcon/>
+            </IconButton>
+          </Box>
 
-            <Divider></Divider>
+          <Divider></Divider>
 
-            {shoppingCartList.map((robot, index) => (
-              <List>
-                <ListItemText
-                  primary={robot.name.substring(0,10)}
-                  secondary={`฿${robot.price}`}
-                />
+          {shoppingCartList.map((robot, index) => (
+            <List>
+              <ListItemText
+                primary={robot.name.substring(0,10)}
+                secondary={`฿${robot.price}`}
+              />
 
-                <ListItemSecondaryAction>
-                  <IconButton edge="end" onClick={() => addItem(robot)}>
-                    <AddIcon />
-                  </IconButton>
+              <ListItemSecondaryAction>
+                <IconButton 
+                  edge="end" 
+                  onClick={() => addItem(robot, index)}
+                >
+                  <AddIcon />
+                </IconButton>
 
-                  <IconButton color="primary">
-                    <Typography>
-                      {robot.stock}
-                    </Typography>
-                  </IconButton>
+                <IconButton color="primary">
+                  <Typography>
+                    {robot.stock}
+                  </Typography>
+                </IconButton>
 
-                
-                  <IconButton edge="end" onClick={() => subtractItem(robot)}>
-                    <RemoveIcon />
-                  </IconButton>
-
-                </ListItemSecondaryAction>
-
-              </List>
-
-            ))}
-                
-
-          </div>
-          </Drawer>
-
-
-
-
-
+                <IconButton 
+                  edge="end" 
+                  disabled={robot.stock === 0 ? true : false} 
+                  onClick={() => subtractItem(robot, index)}
+                >
+                  <RemoveIcon />
+                </IconButton>
+              </ListItemSecondaryAction>
+            </List>
+          ))}
+        </div>
+      </Drawer>
     </div>
-
-
   )
 }
 
